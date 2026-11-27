@@ -465,3 +465,56 @@ select, input[type="text"] {
   .switch .slider, .switch .slider::before { transition-duration: .01s; }
   .progress.indeterminate .bar { animation: none; width: 100%; opacity: .5; }
 }
+
+/* ---------- 불러오기 ---------- */
+.head-left { display: flex; align-items: center; gap: 6px; }
+.text-btn.with-icon { display: inline-flex; align-items: center; gap: 4px; }
+.text-btn.with-icon svg { width: 16px; height: 16px; }
+.subtitle-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.subtitle-row .segmented { flex: none; height: 36px; }
+.subtitle-row .hint { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.import-box { width: min(640px, 100%); }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; font-weight: 600; cursor: pointer; }
+.check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+.import-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.table-wrap {
+  margin-top: 12px;
+  max-height: 210px; overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.preview-table { width: 100%; border-collapse: collapse; font-size: 13px; user-select: text; }
+.preview-table th, .preview-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left; vertical-align: top;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview-table th { position: sticky; top: 0; background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.preview-table tr:last-child td { border-bottom: 0; }
+.preview-table td:first-child, .preview-table th:first-child { width: 36px; color: var(--muted); }
+.preview-table .auto { color: var(--muted); font-style: italic; }
+.preview-table .warn { color: var(--danger); }
+
+/* 파일을 끌어다 놓을 때 */
+.drop-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  display: grid; place-items: center;
+  padding: 24px;
+  background: rgba(10, 14, 20, .55);
+  pointer-events: none;
+}
+.drop-overlay[hidden] { display: none; }
+.drop-box {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  width: min(420px, 100%);
+  padding: 34px 24px;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  color: var(--text);
+}
+.drop-box svg { width: 40px; height: 40px; color: var(--accent); }
+.drop-box strong { font-size: 16px; }
+.drop-box span { color: var(--muted); font-size: 13px; }

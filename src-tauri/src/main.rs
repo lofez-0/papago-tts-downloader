@@ -1,6 +1,9 @@
 // 릴리스 빌드에서 콘솔 창이 뜨지 않게 한다.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod mp3;
+mod subtitle;
+mod textfile;
 mod tts;
 
 use std::fs::OpenOptions;
@@ -36,28 +39,60 @@ struct SaveRequest {
     tts: TtsRequest,
     dir: String,
     file_name: String,
+    /// "srt" | "lrc" | "none"(또는 없음)
+    subtitle: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveResult {
+    path: String,
+    subtitle_path: Option<String>,
 }
 
 /// 미리듣기: mp3 바이트를 그대로 돌려준다 (JS에서는 ArrayBuffer로 받음).
 #[tauri::command]
 async fn preview(state: State<'_, AppState>, req: TtsRequest) -> Result<Response, String> {
-    let audio = tts::synthesize(&state.client, &req.text, &req.language, &req.gender, req.speed).await?;
-    Ok(Response::new(audio))
+    let synth = tts::synthesize(&state.client, &req.text, &req.language, &req.gender, req.speed, false).await?;
+    Ok(Response::new(synth.audio))
 }
 
 /// 음성을 받아 폴더에 저장하고, 실제로 저장된 파일 경로를 돌려준다.
+/// 자막을 고르면 mp3와 같은 이름으로 자막 파일도 저장한다.
 #[tauri::command]
-async fn save(state: State<'_, AppState>, req: SaveRequest) -> Result<String, String> {
+async fn save(state: State<'_, AppState>, req: SaveRequest) -> Result<SaveResult, String> {
     let dir = PathBuf::from(req.dir.trim());
     if req.dir.trim().is_empty() {
         return Err("저장 폴더를 먼저 골라 주세요.".into());
     }
+    let format = subtitle::Format::parse(req.subtitle.as_deref())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("저장 폴더를 만들 수 없습니다: {e}"))?;
 
     let t = &req.tts;
-    let audio = tts::synthesize(&state.client, &t.text, &t.language, &t.gender, t.speed).await?;
-    let path = write_unique(&dir, &sanitize_file_name(&req.file_name), &audio)?;
-    Ok(path.to_string_lossy().into_owned())
+    let synth = tts::synthesize(&state.client, &t.text, &t.language, &t.gender, t.speed, format.is_some()).await?;
+    let path = write_unique(
+        &dir,
+        &sanitize_file_name(&req.file_name),
+        &synth.audio,
+        format.map(|f| f.extension()),
+    )?;
+
+    let subtitle_path = match format {
+        Some(f) => {
+            let sub = path.with_extension(f.extension());
+            std::fs::write(&sub, f.render(&synth.cues))
+                .map_err(|e| format!("음성은 저장했지만 자막 파일을 저장하지 못했습니다: {e}"))?;
+            Some(sub.to_string_lossy().into_owned())
+        }
+        None => None,
+    };
+    Ok(SaveResult { path: path.to_string_lossy().into_owned(), subtitle_path })
+}
+
+/// 불러온 txt/csv/tsv 파일 내용을 글자로 돌려준다.
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    textfile::read(Path::new(&path))
 }
 
 /// 저장해 둔 mp3를 다시 읽어 재생할 때 쓴다.
@@ -212,10 +247,14 @@ fn sanitize_file_name(name: &str) -> String {
 }
 
 /// 같은 이름이 있으면 "이름 (2).mp3"처럼 번호를 붙여 새 파일로 쓴다.
-fn write_unique(dir: &Path, stem: &str, data: &[u8]) -> Result<PathBuf, String> {
+/// sidecar(자막 확장자)를 주면 같은 이름의 자막 파일도 없을 때만 그 이름을 쓴다.
+fn write_unique(dir: &Path, stem: &str, data: &[u8], sidecar: Option<&str>) -> Result<PathBuf, String> {
     for n in 1..1000 {
         let name = if n == 1 { format!("{stem}.mp3") } else { format!("{stem} ({n}).mp3") };
         let path = dir.join(name);
+        if sidecar.is_some_and(|ext| path.with_extension(ext).exists()) {
+            continue;
+        }
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut f) => {
                 f.write_all(data).map_err(|e| format!("파일을 저장할 수 없습니다: {e}"))?;
@@ -242,6 +281,7 @@ fn main() {
             read_audio,
             reveal,
             default_dir,
+            read_text_file,
             app_version,
             check_update,
             install_update
@@ -260,5 +300,23 @@ mod tests {
         assert_eq!(sanitize_file_name("   "), "tts");
         assert_eq!(sanitize_file_name("CON"), "tts");
         assert_eq!(sanitize_file_name("끝에 점..."), "끝에 점");
+    }
+}
+
+#[cfg(test)]
+mod save_tests {
+    use super::write_unique;
+
+    #[test]
+    fn unique_name_respects_subtitle_file() {
+        let dir = std::env::temp_dir().join(format!("ptts-unique-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 자막 파일만 남아 있어도 그 이름은 건너뛴다
+        std::fs::write(dir.join("문장.srt"), "x").unwrap();
+        let p = write_unique(&dir, "문장", b"a", Some("srt")).unwrap();
+        assert_eq!(p.file_name().unwrap(), "문장 (2).mp3");
+        let p = write_unique(&dir, "문장", b"a", None).unwrap();
+        assert_eq!(p.file_name().unwrap(), "문장.mp3");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

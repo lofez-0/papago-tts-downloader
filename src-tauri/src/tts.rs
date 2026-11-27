@@ -7,8 +7,12 @@
 
 use std::time::Duration;
 
+use futures_util::stream::{self, StreamExt};
 use reqwest::{header, Client};
 use serde::Deserialize;
+
+use crate::mp3;
+use crate::subtitle::Cue;
 
 const API: &str = "https://papago.naver.com/api/tts";
 
@@ -16,8 +20,15 @@ const API: &str = "https://papago.naver.com/api/tts";
 /// 이보다 긴 글은 문장 단위로 나눠 받은 뒤 하나의 mp3로 이어 붙인다.
 pub const MAX_CHUNK_CHARS: usize = 1000;
 
-/// 한 번에 저장할 수 있는 최대 글자 수 (요청 폭주 방지).
+/// 자막을 만들 때 한 줄(자막 하나)의 최대 글자 수. 더 긴 문장은 공백 근처에서 나눈다.
+pub const MAX_CUE_CHARS: usize = 120;
+
+/// 한 번에 저장할 수 있는 최대 글자 수와 조각 수 (요청 폭주 방지).
 pub const MAX_TOTAL_CHARS: usize = 20_000;
+pub const MAX_PIECES: usize = 400;
+
+/// 한 파일 안에서 동시에 보내는 요청 수
+const PARALLEL: usize = 2;
 
 pub fn build_client() -> reqwest::Result<Client> {
     let mut headers = header::HeaderMap::new();
@@ -131,14 +142,23 @@ async fn fetch_chunk(client: &Client, text: &str, speaker: &str, speed: i32) -> 
     Ok(bytes.to_vec())
 }
 
-/// 텍스트를 mp3 바이트로 만든다. 긴 글은 나눠 받아 하나로 이어 붙인다.
+pub struct Synth {
+    pub audio: Vec<u8>,
+    /// with_cues가 true일 때만 채워진다 (문장마다 하나)
+    pub cues: Vec<Cue>,
+}
+
+/// 텍스트를 mp3로 만든다.
+/// with_cues가 false면 1000자 단위로 받아 이어 붙이고,
+/// true면 문장 단위로 받아 문장마다 시작·끝 시간을 기록한다 (자막용).
 pub async fn synthesize(
     client: &Client,
     text: &str,
     language: &str,
     gender: &str,
     speed: i32,
-) -> Result<Vec<u8>, String> {
+    with_cues: bool,
+) -> Result<Synth, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("읽을 텍스트가 비어 있습니다.".into());
@@ -149,42 +169,76 @@ pub async fn synthesize(
     let speaker = speaker(language, gender).ok_or("지원하지 않는 언어입니다.")?;
     let speed = normalize_speed(speed, language)?;
 
-    let chunks = split_text(text, MAX_CHUNK_CHARS);
-    let last = chunks.len().saturating_sub(1);
-    let mut out = Vec::new();
-    for (i, chunk) in chunks.iter().enumerate() {
-        let data = fetch_chunk(client, chunk, speaker, speed)
-            .await
-            .map_err(|e| if chunks.len() > 1 { format!("{}/{} 조각: {e}", i + 1, chunks.len()) } else { e })?;
-        let mut part: &[u8] = &data;
-        if i > 0 {
-            part = strip_id3v2(part);
-        }
-        if i < last {
-            part = strip_id3v1(part);
-        }
-        out.extend_from_slice(part);
+    let pieces = if with_cues {
+        split_cues(text, MAX_CUE_CHARS)
+    } else {
+        split_text(text, MAX_CHUNK_CHARS)
+    };
+    if pieces.is_empty() {
+        return Err("읽을 텍스트가 비어 있습니다.".into());
     }
-    Ok(out)
+    if pieces.len() > MAX_PIECES {
+        return Err(format!(
+            "문장이 너무 많습니다 ({}개). 한 파일에 {MAX_PIECES}문장까지 저장할 수 있습니다.",
+            pieces.len()
+        ));
+    }
+
+    let total = pieces.len();
+    // 요청을 미리 만들어 두고 PARALLEL개씩 순서대로 보낸다 (결과 순서는 유지된다).
+    let requests: Vec<_> = pieces.iter().map(|p| fetch_chunk(client, p, speaker, speed)).collect();
+    let results: Vec<Result<Vec<u8>, String>> = stream::iter(requests).buffered(PARALLEL).collect().await;
+
+    let mut audio = Vec::new();
+    let mut cues = Vec::new();
+    let mut time = 0.0;
+    for (i, (piece, data)) in pieces.iter().zip(results).enumerate() {
+        let data = data.map_err(|e| if total > 1 { format!("{}/{total} 조각: {e}", i + 1) } else { e })?;
+        let tag_len = mp3::id3v2_len(&data);
+        // 맨 앞 Info 프레임은 첫 문장 길이만 적혀 있어서 플레이어가 전체 길이를
+        // 잘못 표시할 수 있으므로 항상 뺀다. (CBR이라 없어도 길이를 바르게 계산한다)
+        let mut body = mp3::strip_info_frame(&data[tag_len..]);
+        if i + 1 < total {
+            body = mp3::strip_id3v1(body);
+        }
+        if i == 0 {
+            audio.extend_from_slice(&data[..tag_len]);
+        }
+        audio.extend_from_slice(body);
+
+        let duration = mp3::duration_secs(body);
+        if with_cues {
+            cues.push(Cue {
+                start: time,
+                end: time + duration,
+                text: piece.split_whitespace().collect::<Vec<_>>().join(" "),
+            });
+        }
+        time += duration;
+    }
+    Ok(Synth { audio, cues })
 }
 
-// ---------- 긴 글 나누기 ----------
+// ---------- 글 나누기 ----------
 
-fn is_sentence_end(c: char) -> bool {
-    matches!(c, '.' | '!' | '?' | '。' | '！' | '？' | '\n')
-}
-
-/// 문장 끝 문자 바로 뒤에서 자른 조각들 (구분 문자는 앞 조각에 남긴다).
+/// 문장 끝: 줄바꿈과 전각 문장부호는 바로 끊고,
+/// . ! ? 는 뒤에 공백이 오거나 글이 끝날 때만 끊는다 (3.14, "...!" 같은 경우 보호).
 fn sentences(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
-    let mut prev_end = false;
-    for (i, c) in text.char_indices() {
-        if prev_end && !is_sentence_end(c) {
-            out.push(&text[start..i]);
-            start = i;
+    let mut iter = text.char_indices().peekable();
+    while let Some((i, c)) = iter.next() {
+        let next = iter.peek().map(|&(_, n)| n);
+        let end_here = match c {
+            '\n' | '。' | '！' | '？' => true,
+            '.' | '!' | '?' => next.map_or(true, char::is_whitespace),
+            _ => false,
+        };
+        if end_here {
+            let end = i + c.len_utf8();
+            out.push(&text[start..end]);
+            start = end;
         }
-        prev_end = is_sentence_end(c);
     }
     if start < text.len() {
         out.push(&text[start..]);
@@ -210,6 +264,7 @@ fn hard_split(s: &str, max: usize) -> Vec<String> {
     out
 }
 
+/// 요청 단위로 나누기: 문장을 모아 max 글자 이하 조각으로 만든다.
 pub fn split_text(text: &str, max: usize) -> Vec<String> {
     let mut chunks: Vec<String> = Vec::new();
     let mut cur = String::new();
@@ -239,32 +294,22 @@ pub fn split_text(text: &str, max: usize) -> Vec<String> {
         .collect()
 }
 
-// ---------- mp3 이어 붙이기 ----------
-
-/// 맨 앞의 ID3v2 태그를 떼어 낸다 (두 번째 조각부터).
-fn strip_id3v2(b: &[u8]) -> &[u8] {
-    if b.len() >= 10 && &b[0..3] == b"ID3" {
-        let size = ((b[6] as usize & 0x7f) << 21)
-            | ((b[7] as usize & 0x7f) << 14)
-            | ((b[8] as usize & 0x7f) << 7)
-            | (b[9] as usize & 0x7f);
-        let footer = if b[5] & 0x10 != 0 { 10 } else { 0 };
-        let end = 10 + size + footer;
-        if end <= b.len() {
-            return &b[end..];
+/// 자막 단위로 나누기: 문장 하나가 자막 하나. 너무 긴 문장은 max 글자 근처에서 나눈다.
+pub fn split_cues(text: &str, max: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for sentence in sentences(text) {
+        let sentence = sentence.trim();
+        if sentence.is_empty() {
+            continue;
+        }
+        if sentence.chars().count() > max {
+            out.extend(hard_split(sentence, max).into_iter().map(|s| s.trim().to_string()));
+        } else {
+            out.push(sentence.to_string());
         }
     }
-    b
-}
-
-/// 맨 뒤의 ID3v1 태그를 떼어 낸다 (마지막 조각 전까지).
-fn strip_id3v1(b: &[u8]) -> &[u8] {
-    let n = b.len();
-    if n >= 128 && &b[n - 128..n - 125] == b"TAG" {
-        &b[..n - 128]
-    } else {
-        b
-    }
+    out.retain(|s| !s.is_empty());
+    out
 }
 
 #[cfg(test)]
@@ -301,30 +346,20 @@ mod tests {
     }
 
     #[test]
-    fn strips_id3_tags() {
-        let mut v2 = b"ID3\x03\x00\x00\x00\x00\x00\x05".to_vec();
-        v2.extend_from_slice(b"xxxxxAUDIO");
-        assert_eq!(strip_id3v2(&v2), b"AUDIO");
-
-        let mut v1 = b"AUDIO".to_vec();
-        v1.extend_from_slice(b"TAG");
-        v1.extend(std::iter::repeat(0u8).take(125));
-        assert_eq!(strip_id3v1(&v1), b"AUDIO");
+    fn cues_are_sentences() {
+        assert_eq!(
+            split_cues("원주율은 3.14입니다. 정말요?! 네…\n\n다음 줄입니다", 120),
+            vec!["원주율은 3.14입니다.", "정말요?!", "네…", "다음 줄입니다"]
+        );
+        assert_eq!(split_cues("Hello. 世界。你好！", 120), vec!["Hello.", "世界。", "你好！"]);
     }
 
-    /// 실제 파파고 서버에 요청한다: cargo test -- --ignored
     #[test]
-    #[ignore = "실제 파파고 서버에 요청"]
-    fn live_synthesize_long_text() {
-        let client = build_client().unwrap();
-        let text = "안녕하세요. 파파고 음성 저장 테스트입니다. ".repeat(50); // 1000자 넘음 → 2조각
-        assert!(split_text(&text, MAX_CHUNK_CHARS).len() >= 2);
-        let audio = tauri::async_runtime::block_on(synthesize(&client, &text, "ko", "female", 0)).unwrap();
-        assert_eq!(&audio[0..3], b"ID3");
-        assert!(audio.len() > 50_000, "너무 작음: {}", audio.len());
-        let out = std::env::temp_dir().join("papago_live_test.mp3");
-        std::fs::write(&out, &audio).unwrap();
-        println!("saved {} bytes to {}", audio.len(), out.display());
+    fn long_cue_is_split() {
+        let s = "가나다라 ".repeat(60); // 300자
+        let cues = split_cues(&s, 120);
+        assert!(cues.len() >= 3);
+        assert!(cues.iter().all(|c| c.chars().count() <= 120));
     }
 
     #[test]
@@ -335,5 +370,40 @@ mod tests {
         assert_eq!(normalize_speed(-2, "en"), Ok(-1));
         assert_eq!(normalize_speed(-2, "ko"), Ok(-2));
         assert!(normalize_speed(7, "ko").is_err());
+    }
+
+    /// 실제 파파고 서버에 요청한다: cargo test -- --ignored
+    #[test]
+    #[ignore = "실제 파파고 서버에 요청"]
+    fn live_synthesize_long_text() {
+        let client = build_client().unwrap();
+        let text = "안녕하세요. 파파고 음성 저장 테스트입니다. ".repeat(50); // 1000자 넘음 → 2조각
+        assert!(split_text(&text, MAX_CHUNK_CHARS).len() >= 2);
+        let s = tauri::async_runtime::block_on(synthesize(&client, &text, "ko", "female", 0, false)).unwrap();
+        assert_eq!(&s.audio[0..3], b"ID3");
+        assert!(s.audio.len() > 50_000, "너무 작음: {}", s.audio.len());
+        let out = std::env::temp_dir().join("papago_live_test.mp3");
+        std::fs::write(&out, &s.audio).unwrap();
+        println!("saved {} bytes, {:.3}s to {}", s.audio.len(), mp3::duration_secs(&s.audio), out.display());
+    }
+
+    /// 자막: 문장마다 받아 이어 붙이고, 자막 시간과 전체 길이가 맞는지 본다.
+    #[test]
+    #[ignore = "실제 파파고 서버에 요청"]
+    fn live_synthesize_with_cues() {
+        let client = build_client().unwrap();
+        let text = "안녕하세요. 만나서 반갑습니다.\n오늘 날씨가 정말 좋네요! 원주율은 3.14입니다.";
+        let s = tauri::async_runtime::block_on(synthesize(&client, text, "ko", "female", 0, true)).unwrap();
+        assert_eq!(s.cues.len(), 4);
+        let total = mp3::duration_secs(&s.audio);
+        assert!((s.cues.last().unwrap().end - total).abs() < 1e-6);
+        for w in s.cues.windows(2) {
+            assert!((w[0].end - w[1].start).abs() < 1e-9);
+            assert!(w[0].end > w[0].start);
+        }
+        let dir = std::env::temp_dir();
+        std::fs::write(dir.join("papago_cue_test.mp3"), &s.audio).unwrap();
+        std::fs::write(dir.join("papago_cue_test.srt"), crate::subtitle::to_srt(&s.cues)).unwrap();
+        println!("total {total:.3}s, cues {:?}", s.cues);
     }
 }
