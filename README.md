@@ -29,11 +29,17 @@ Rust + [Tauri 2](https://tauri.app)로 만들었습니다. (설치 파일 약 1.
 
 > 서명되지 않은 프로그램이라 처음 실행할 때 Windows SmartScreen 경고가 뜰 수 있습니다. "추가 정보" → "실행"을 누르면 됩니다.
 
+v0.2.0부터는 프로그램이 스스로 새 버전을 확인하고 업데이트합니다. (자동 업데이트는 설치 파일로 설치한 경우를 기준으로 동작합니다.)
+
 ## 스크린샷
 
 | 라이트 테마 | 처음 실행 시 이용 안내 |
 |---|---|
 | ![라이트 테마 화면](docs/screenshot-light.png) | ![이용 안내 및 면책 고지 화면](docs/screenshot-notice.png) |
+
+| 설정 (앱 버전 · 업데이트) | 업데이트 완료 알림 |
+|---|---|
+| ![설정 화면](docs/screenshot-settings.png) | ![업데이트 완료 알림](docs/screenshot-update.png) |
 
 ## 기능
 
@@ -45,6 +51,16 @@ Rust + [Tauri 2](https://tauri.app)로 만들었습니다. (설치 파일 약 1.
 - 다운로드 목록: 진행 상태, 재생, 폴더에서 보기, 실패 항목 다시 시도
 - 같은 이름의 파일이 있으면 덮어쓰지 않고 `이름 (2).mp3`로 저장
 - 설정(언어·목소리·속도·저장 폴더) 기억, 다크 모드 지원
+
+### 설정 · 업데이트
+
+오른쪽 위 ⚙️ 버튼을 누르면 설정이 열립니다.
+
+- **현재 버전**: 지금 쓰고 있는 버전을 보여 줍니다.
+- **자동 업데이트** (기본: 켜짐): 프로그램을 시작할 때 새 버전을 확인하고, 있으면 바로 받아 설치합니다. 설치가 끝나면 프로그램이 다시 실행되고, 오른쪽 아래에 "업데이트 완료" 알림이 왼쪽에서 오른쪽으로 들어왔다가 다시 왼쪽으로 사라집니다.
+- **수동 업데이트**: 자동 업데이트를 끄면 "업데이트 확인" 버튼이 나타납니다. 새 버전이 있으면 바뀐 내용을 보여 주고, **지금 업데이트**할지 **나중에** 할지 고를 수 있습니다.
+
+업데이트 파일은 서명을 검사한 뒤에만 설치되므로, 서명이 맞지 않는 파일은 설치되지 않습니다.
 
 ## 동작 원리
 
@@ -77,13 +93,31 @@ npm run build    # 배포용 빌드
 - 실행 파일: `src-tauri/target/release/papago-tts-downloader.exe`
 - 설치 파일: `src-tauri/target/release/bundle/nsis/`
 
+`npm run build`에는 업데이트 서명용 비밀 키가 필요합니다. 키 없이 빌드만 해 보려면 `npx tauri build --config "{\"bundle\":{\"createUpdaterArtifacts\":false}}"`를 쓰세요.
+
+## 새 버전 배포하기 (관리자용)
+
+1. `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `package.json`의 버전을 올립니다.
+2. 아래 명령으로 빌드하고 GitHub 릴리스를 만듭니다.
+
+   ```powershell
+   npm run release -- --notes "바뀐 내용" --publish
+   ```
+
+   서명된 설치 파일, 실행 파일, `latest.json`이 `dist/release/`에 만들어지고 릴리스에 첨부됩니다.
+   설치된 프로그램은 `releases/latest/download/latest.json`을 보고 새 버전을 찾습니다.
+
+업데이트 서명용 비밀 키는 `%USERPROFILE%\.tauri\papago-tts-downloader.key`에 있어야 합니다 (다른 곳이면 `TAURI_SIGNING_PRIVATE_KEY` 환경 변수로 지정).
+**이 키는 저장소에 올리면 안 되고, 잃어버리면 이미 설치된 프로그램에 업데이트를 보낼 수 없으니 따로 백업해 두세요.**
+
 ## 폴더 구조
 
 ```
-ui/                  화면 (HTML/CSS/JS, 번들러 없음)
-src-tauri/src/tts.rs 파파고 요청, 긴 글 나누기, mp3 이어 붙이기
-src-tauri/src/main.rs Tauri 명령 (미리듣기, 저장, 탐색기 열기)
-docs/                README용 스크린샷
+ui/                   화면 (HTML/CSS/JS, 번들러 없음)
+src-tauri/src/tts.rs  파파고 요청, 긴 글 나누기, mp3 이어 붙이기
+src-tauri/src/main.rs Tauri 명령 (미리듣기, 저장, 탐색기 열기, 버전 · 업데이트)
+scripts/release.mjs   릴리스 파일(서명된 설치 파일, latest.json) 만들기
+docs/                 README용 스크린샷
 ```
 
 ## 문의

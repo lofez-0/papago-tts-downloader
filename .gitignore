@@ -3,3 +3,5 @@ src-tauri/target/
 src-tauri/gen/
 *.mp3
 dist/
+*.key
+*.key.pub

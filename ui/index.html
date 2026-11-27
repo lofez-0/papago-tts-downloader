@@ -13,9 +13,14 @@
       <h1>Papago TTS Downloader</h1>
       <span class="badge">비공식 · 교육용</span>
     </div>
-    <button id="infoBtn" class="icon-btn" title="이용 안내 및 면책 고지" aria-label="이용 안내 및 면책 고지">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/></svg>
-    </button>
+    <div class="top-actions">
+      <button id="settingsBtn" class="icon-btn" title="설정" aria-label="설정">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.48 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+      <button id="infoBtn" class="icon-btn" title="이용 안내 및 면책 고지" aria-label="이용 안내 및 면책 고지">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/></svg>
+      </button>
+    </div>
   </header>
 
   <main class="layout">
@@ -116,6 +121,74 @@
       <div class="modal-actions">
         <button id="modalClose" class="btn primary" disabled>동의하고 시작</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 설정 -->
+  <div id="settingsModal" class="modal" hidden>
+    <div class="modal-box settings-box" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-head">
+        <h2 id="settingsTitle">설정</h2>
+        <button id="settingsClose" class="icon-btn subtle" title="닫기" aria-label="닫기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+
+      <h3 class="section-title">앱 버전</h3>
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">현재 버전</div>
+          <div class="setting-desc" id="updateStatus">아직 업데이트를 확인하지 않았습니다.</div>
+        </div>
+        <span class="version-badge" id="versionText">v-</span>
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-title">자동 업데이트</div>
+          <div class="setting-desc">켜 두면 프로그램을 시작할 때 새 버전을 확인하고 자동으로 설치합니다.</div>
+        </div>
+        <label class="switch" title="자동 업데이트">
+          <input type="checkbox" id="autoUpdate" role="switch" />
+          <span class="slider" aria-hidden="true"></span>
+        </label>
+      </div>
+      <div class="setting-row" id="manualRow">
+        <div>
+          <div class="setting-title">수동 업데이트</div>
+          <div class="setting-desc">새 버전이 있는지 확인하고, 업데이트할지 직접 고릅니다.</div>
+        </div>
+        <button id="checkUpdateBtn" class="btn">업데이트 확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 새 버전 안내 -->
+  <div id="updateModal" class="modal" hidden>
+    <div class="modal-box update-box" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+      <h2 id="updateTitle">새 버전이 있습니다</h2>
+      <p class="update-versions">
+        <span id="updFrom" class="version-chip"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+        <span id="updTo" class="version-chip new"></span>
+      </p>
+      <div id="updNotes" class="update-notes"></div>
+      <div id="updProgress" class="progress" hidden><div class="bar"></div></div>
+      <p id="updMessage" class="setting-desc"></p>
+      <div class="modal-actions" id="updActions">
+        <button id="updLater" class="btn">나중에</button>
+        <button id="updNow" class="btn primary">지금 업데이트</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 업데이트 완료 알림 (오른쪽 아래) -->
+  <div id="notify" class="notify" role="status" aria-live="polite" hidden>
+    <div class="notify-icon">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+    </div>
+    <div>
+      <div class="notify-title" id="notifyTitle">업데이트 완료</div>
+      <div class="notify-body" id="notifyBody"></div>
     </div>
   </div>
 

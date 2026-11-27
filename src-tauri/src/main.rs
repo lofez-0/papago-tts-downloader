@@ -6,13 +6,19 @@ mod tts;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-use serde::Deserialize;
-use tauri::{ipc::Response, Manager, State};
+use serde::{Deserialize, Serialize};
+use tauri::{ipc::Response, AppHandle, Emitter, Manager, State};
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 struct AppState {
     client: reqwest::Client,
 }
+
+/// 확인해 둔 업데이트 (설치 버튼을 누를 때 사용)
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<Update>>);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,6 +120,74 @@ fn default_dir(app: tauri::AppHandle) -> String {
         .unwrap_or_default()
 }
 
+// ---------- 버전 · 업데이트 ----------
+
+#[tauri::command]
+fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
+}
+
+/// 새 버전이 있으면 정보를 돌려주고, 없으면 null.
+#[tauri::command]
+async fn check_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<Option<UpdateInfo>, String> {
+    let updater = app
+        .updater()
+        .map_err(|e| format!("업데이트 확인을 준비하지 못했습니다: {e}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("업데이트 정보를 가져오지 못했습니다: {e}"))?;
+    let info = update.as_ref().map(|u| UpdateInfo {
+        version: u.version.clone(),
+        current_version: u.current_version.clone(),
+        notes: u.body.clone().filter(|b| !b.trim().is_empty()),
+    });
+    *pending.0.lock().unwrap() = update;
+    Ok(info)
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+/// 확인해 둔 업데이트를 받아 설치한다.
+/// Windows에서는 설치 단계에서 프로그램이 종료되고, 설치가 끝나면 새 버전이 다시 실행된다.
+#[tauri::command]
+async fn install_update(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<(), String> {
+    let update = pending
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("설치할 업데이트가 없습니다. 업데이트를 다시 확인해 주세요.")?;
+
+    let emitter = app.clone();
+    let mut downloaded = 0u64;
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = emitter.emit("update-progress", UpdateProgress { downloaded, total });
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("업데이트를 설치하지 못했습니다: {e}"))?;
+
+    // Windows 이외의 환경에서는 직접 다시 시작한다.
+    app.restart()
+}
+
 /// 파일 이름에 쓸 수 없는 문자를 지우고 길이를 줄인다.
 fn sanitize_file_name(name: &str) -> String {
     let cleaned: String = name
@@ -159,8 +233,19 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState { client })
-        .invoke_handler(tauri::generate_handler![preview, save, read_audio, reveal, default_dir])
+        .manage(PendingUpdate::default())
+        .invoke_handler(tauri::generate_handler![
+            preview,
+            save,
+            read_audio,
+            reveal,
+            default_dir,
+            app_version,
+            check_update,
+            install_update
+        ])
         .run(tauri::generate_context!())
         .expect("프로그램을 실행하는 중 오류가 발생했습니다");
 }

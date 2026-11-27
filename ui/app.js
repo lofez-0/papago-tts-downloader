@@ -2,6 +2,7 @@
 
 const { invoke } = window.__TAURI__.core;
 const dialog = window.__TAURI__.dialog;
+const { listen } = window.__TAURI__.event;
 
 // 파파고가 지원하는 TTS 언어 (백엔드의 화자 표와 같아야 함)
 const LANGUAGES = [
@@ -22,6 +23,7 @@ const SPEED_LABEL = { 5: "아주 느리게", 3: "느리게", 0: "보통", "-2": 
 const CONCURRENCY = 2;          // 동시에 받는 개수 (서비스 부담을 줄이려고 낮게 둔다)
 const MAX_LINES = 300;          // 한 번에 넣을 수 있는 줄 수
 const DISCLAIMER_KEY = "disclaimer-agreed-v1";
+const PENDING_UPDATE_KEY = "pending-update"; // 업데이트 직후 알림용 {from, to}
 
 // ---------- 저장소 (실패해도 동작하도록) ----------
 const store = {
@@ -35,6 +37,9 @@ const store = {
   },
   set(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 무시 */ }
+  },
+  remove(key) {
+    try { localStorage.removeItem(key); } catch { /* 무시 */ }
   },
 };
 
@@ -59,6 +64,27 @@ const els = {
   agreeCheck: $("agreeCheck"),
   modalClose: $("modalClose"),
   infoBtn: $("infoBtn"),
+  settingsBtn: $("settingsBtn"),
+  settingsModal: $("settingsModal"),
+  settingsClose: $("settingsClose"),
+  versionText: $("versionText"),
+  updateStatus: $("updateStatus"),
+  autoUpdate: $("autoUpdate"),
+  manualRow: $("manualRow"),
+  checkUpdateBtn: $("checkUpdateBtn"),
+  updateModal: $("updateModal"),
+  updateTitle: $("updateTitle"),
+  updFrom: $("updFrom"),
+  updTo: $("updTo"),
+  updNotes: $("updNotes"),
+  updProgress: $("updProgress"),
+  updMessage: $("updMessage"),
+  updActions: $("updActions"),
+  updLater: $("updLater"),
+  updNow: $("updNow"),
+  notify: $("notify"),
+  notifyTitle: $("notifyTitle"),
+  notifyBody: $("notifyBody"),
 };
 
 const settings = {
@@ -67,6 +93,7 @@ const settings = {
   gender: "female",
   speed: 0,
   dir: "",
+  autoUpdate: true,
   ...store.get("settings", {}),
 };
 if (!LANGUAGE_LABEL[settings.language]) settings.language = "ko";
@@ -411,22 +438,223 @@ function showDisclaimer(firstRun) {
   els.modal.hidden = false;
 }
 
-function initDisclaimer() {
+// 동의를 마친 뒤(이미 동의했다면 바로) onReady를 부른다.
+function initDisclaimer(onReady) {
   els.agreeCheck.addEventListener("change", () => {
     els.modalClose.disabled = !els.agreeCheck.checked;
   });
   els.modalClose.addEventListener("click", () => {
-    if (els.modal.dataset.firstRun === "true") store.set(DISCLAIMER_KEY, true);
+    const firstRun = els.modal.dataset.firstRun === "true";
+    if (firstRun) store.set(DISCLAIMER_KEY, true);
     els.modal.hidden = true;
+    if (firstRun) onReady();
   });
   els.infoBtn.addEventListener("click", () => showDisclaimer(false));
-  if (!store.get(DISCLAIMER_KEY, false)) showDisclaimer(true);
+  if (store.get(DISCLAIMER_KEY, false)) onReady();
+  else showDisclaimer(true);
+}
+
+// ---------- 완료 알림 (오른쪽 아래, 왼쪽→오른쪽으로 들어왔다가 다시 왼쪽으로 사라짐) ----------
+let notifyTimer;
+function showNotify(title, body, duration = 4500) {
+  const n = els.notify;
+  clearTimeout(notifyTimer);
+  els.notifyTitle.textContent = title;
+  els.notifyBody.textContent = body;
+  n.hidden = false;
+  n.classList.remove("leave", "enter");
+  void n.offsetWidth; // 애니메이션을 처음부터 다시 시작
+  n.classList.add("enter");
+  notifyTimer = setTimeout(() => {
+    n.classList.remove("enter");
+    n.classList.add("leave");
+    n.addEventListener("animationend", () => {
+      if (n.classList.contains("leave")) n.hidden = true;
+    }, { once: true });
+  }, duration);
+}
+
+// ---------- 설정 · 업데이트 ----------
+let currentVersion = "";
+let updateBusy = false; // 확인 또는 설치 중
+let installing = false;
+
+function setUpdateStatus(text) {
+  els.updateStatus.textContent = text;
+}
+
+function openSettings() {
+  els.settingsModal.hidden = false;
+}
+function closeSettings() {
+  els.settingsModal.hidden = true;
+}
+
+function applyAutoUpdateUi() {
+  els.autoUpdate.checked = settings.autoUpdate;
+  // 자동 업데이트를 끄면 수동 업데이트 버튼이 나타난다.
+  els.manualRow.hidden = settings.autoUpdate;
+}
+
+async function initVersion() {
+  try {
+    currentVersion = await invoke("app_version");
+  } catch {
+    currentVersion = "";
+  }
+  els.versionText.textContent = currentVersion ? `v${currentVersion}` : "알 수 없음";
+
+  // 업데이트를 설치하고 다시 실행된 경우 알림을 띄운다.
+  const pending = store.get(PENDING_UPDATE_KEY, null);
+  if (pending) {
+    store.remove(PENDING_UPDATE_KEY);
+    if (currentVersion && pending.to === currentVersion) {
+      setUpdateStatus(`v${pending.from}에서 업데이트했습니다.`);
+      setTimeout(() => showNotify("업데이트 완료", `v${currentVersion} 버전으로 업데이트했습니다.`), 400);
+    }
+  }
+}
+
+function showUpdateModal(info, { auto }) {
+  els.updateTitle.textContent = auto ? "새 버전을 설치하고 있습니다" : "새 버전이 있습니다";
+  els.updFrom.textContent = `v${info.currentVersion}`;
+  els.updTo.textContent = `v${info.version}`;
+  els.updNotes.textContent = info.notes || "";
+  els.updProgress.hidden = true;
+  els.updMessage.textContent = auto ? "" : "지금 업데이트하면 설치가 끝난 뒤 프로그램이 다시 시작됩니다.";
+  els.updActions.hidden = auto;
+  els.updNow.textContent = "지금 업데이트";
+  els.updateModal.dataset.version = info.version;
+  els.updateModal.dataset.from = info.currentVersion;
+  els.updateModal.hidden = false;
+  if (!auto) els.updNow.focus();
+}
+
+function setProgress(downloaded, total) {
+  const bar = els.updProgress.querySelector(".bar");
+  const mb = (n) => (n / 1024 / 1024).toFixed(1);
+  els.updProgress.hidden = false;
+  if (total) {
+    const pct = Math.min(100, Math.round((downloaded / total) * 100));
+    els.updProgress.classList.remove("indeterminate");
+    bar.style.width = `${pct}%`;
+    els.updMessage.textContent = pct >= 100
+      ? "설치 프로그램을 실행합니다. 잠시 후 프로그램이 다시 시작됩니다."
+      : `받는 중… ${pct}% (${mb(downloaded)} / ${mb(total)} MB)`;
+  } else {
+    els.updProgress.classList.add("indeterminate");
+    els.updMessage.textContent = `받는 중… ${mb(downloaded)} MB`;
+  }
+}
+
+async function installUpdate() {
+  if (installing) return;
+  if (active > 0 || queue.some((j) => j.status === "waiting")) {
+    toast("저장이 진행 중입니다. 끝난 뒤 다시 시도해 주세요.", true);
+    return;
+  }
+  installing = true;
+  updateBusy = true;
+  const to = els.updateModal.dataset.version;
+  const from = els.updateModal.dataset.from;
+  els.updActions.hidden = true;
+  els.updProgress.hidden = false;
+  els.updProgress.classList.add("indeterminate");
+  els.updMessage.textContent = "새 버전을 받는 중…";
+  // 다시 실행되었을 때 "업데이트 완료" 알림을 띄우려고 미리 적어 둔다.
+  store.set(PENDING_UPDATE_KEY, { from, to });
+  try {
+    await invoke("install_update"); // Windows에서는 설치 단계에서 프로그램이 종료된다.
+  } catch (e) {
+    store.remove(PENDING_UPDATE_KEY);
+    els.updateTitle.textContent = "업데이트하지 못했습니다";
+    els.updProgress.hidden = true;
+    els.updMessage.textContent = errorText(e);
+    els.updActions.hidden = false;
+    els.updNow.textContent = "다시 시도";
+    setUpdateStatus("업데이트를 설치하지 못했습니다.");
+  } finally {
+    installing = false;
+    updateBusy = false;
+  }
+}
+
+async function retryInstall() {
+  // 실패한 뒤에는 업데이트를 다시 확인해야 설치할 수 있다.
+  if (els.updNow.textContent === "다시 시도") {
+    els.updateModal.hidden = true;
+    await checkForUpdate({ auto: false });
+    return;
+  }
+  installUpdate();
+}
+
+/** auto가 true면 새 버전을 찾는 즉시 설치하고, 아니면 사용자가 고르게 한다. */
+async function checkForUpdate({ auto }) {
+  if (updateBusy) return;
+  updateBusy = true;
+  els.checkUpdateBtn.disabled = true;
+  els.checkUpdateBtn.textContent = "확인 중…";
+  setUpdateStatus("업데이트를 확인하는 중…");
+  let info = null;
+  try {
+    info = await invoke("check_update");
+    if (info) {
+      setUpdateStatus(`새 버전이 있습니다: v${info.version}`);
+    } else {
+      setUpdateStatus("최신 버전을 쓰고 있습니다.");
+      if (!auto) toast("최신 버전을 쓰고 있습니다.");
+    }
+  } catch (e) {
+    setUpdateStatus(auto ? "자동 업데이트 확인에 실패했습니다." : errorText(e));
+    if (!auto) toast(errorText(e), true);
+  } finally {
+    updateBusy = false;
+    els.checkUpdateBtn.disabled = false;
+    els.checkUpdateBtn.textContent = "업데이트 확인";
+  }
+  if (info) {
+    closeSettings();
+    showUpdateModal(info, { auto });
+    if (auto) installUpdate();
+  }
+}
+
+function initSettings() {
+  applyAutoUpdateUi();
+  els.settingsBtn.addEventListener("click", openSettings);
+  els.settingsClose.addEventListener("click", closeSettings);
+  els.settingsModal.addEventListener("click", (e) => {
+    if (e.target === els.settingsModal) closeSettings();
+  });
+  els.autoUpdate.addEventListener("change", () => {
+    settings.autoUpdate = els.autoUpdate.checked;
+    saveSettings();
+    applyAutoUpdateUi();
+    toast(settings.autoUpdate ? "자동 업데이트를 켰습니다. 다음 실행부터 적용됩니다." : "자동 업데이트를 껐습니다.");
+  });
+  els.checkUpdateBtn.addEventListener("click", () => checkForUpdate({ auto: false }));
+  els.updLater.addEventListener("click", () => {
+    els.updateModal.hidden = true;
+  });
+  els.updNow.addEventListener("click", retryInstall);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (!els.settingsModal.hidden) closeSettings();
+    else if (!els.updateModal.hidden && !installing && !els.updActions.hidden) els.updateModal.hidden = true;
+  });
+  listen("update-progress", (e) => setProgress(e.payload.downloaded, e.payload.total));
 }
 
 // ---------- 시작 ----------
 initOptions();
 initDir();
-initDisclaimer();
+initSettings();
+initVersion().then(() =>
+  initDisclaimer(() => {
+    if (settings.autoUpdate) checkForUpdate({ auto: true });
+  }),
+);
 render();
 updateCounter();
 
