@@ -1,7 +1,7 @@
 {
   "name": "papago-tts-downloader",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "파파고 TTS 음성을 mp3로 저장하는 교육용 비공식 데스크톱 프로그램",
   "scripts": {
     "dev": "tauri dev",
