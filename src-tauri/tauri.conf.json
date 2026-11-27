@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Papago TTS Downloader",
+  "version": "0.1.0",
+  "identifier": "edu.unofficial.papagottsdownloader",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Papago TTS Downloader (비공식 · 교육용)",
+        "width": 1000,
+        "height": 740,
+        "minWidth": 760,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "파파고 TTS 음성 저장 도구 (비공식 · 교육용)",
+    "longDescription": "교육 목적의 비공식 프로그램입니다. 네이버·파파고와 관련이 없으며 상업적으로 이용할 수 없습니다."
+  }
+}

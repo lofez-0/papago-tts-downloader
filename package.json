@@ -1,0 +1,14 @@
+{
+  "name": "papago-tts-downloader",
+  "private": true,
+  "version": "0.1.0",
+  "description": "파파고 TTS 음성을 mp3로 저장하는 교육용 비공식 데스크톱 프로그램",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6"
+  }
+}

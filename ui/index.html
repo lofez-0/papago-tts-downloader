@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Papago TTS Downloader</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.47 4.47 0 0 0 2.5-4zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg>
+      <h1>Papago TTS Downloader</h1>
+      <span class="badge">비공식 · 교육용</span>
+    </div>
+    <button id="infoBtn" class="icon-btn" title="이용 안내 및 면책 고지" aria-label="이용 안내 및 면책 고지">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z"/></svg>
+    </button>
+  </header>
+
+  <main class="layout">
+    <section class="card editor">
+      <div class="card-head">
+        <label for="text" class="label">읽을 텍스트</label>
+        <div class="segmented" role="radiogroup" aria-label="저장 방식">
+          <button type="button" data-mode="single" role="radio">파일 하나로</button>
+          <button type="button" data-mode="lines" role="radio">줄마다 따로</button>
+        </div>
+      </div>
+      <textarea id="text" spellcheck="false" placeholder="음성으로 만들 문장을 입력하세요.&#10;'줄마다 따로'를 고르면 줄마다 mp3 파일이 하나씩 만들어집니다."></textarea>
+      <div class="meta-row">
+        <span id="counter">0자</span>
+        <span class="hint">Ctrl + Enter로 바로 저장</span>
+      </div>
+
+      <div class="options">
+        <label class="field">
+          <span class="label">언어</span>
+          <select id="language"></select>
+        </label>
+        <div class="field">
+          <span class="label">목소리</span>
+          <div class="segmented" role="radiogroup" aria-label="목소리">
+            <button type="button" data-gender="female" role="radio">여성</button>
+            <button type="button" data-gender="male" role="radio">남성</button>
+          </div>
+        </div>
+        <label class="field">
+          <span class="label">속도</span>
+          <select id="speed">
+            <option value="5">아주 느리게</option>
+            <option value="3">느리게</option>
+            <option value="0">보통</option>
+            <option value="-2">빠르게</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="field">
+        <span class="label">저장 폴더</span>
+        <div class="dir-row">
+          <input id="dir" type="text" readonly />
+          <button id="pickDir" class="btn">변경</button>
+          <button id="openDir" class="btn" title="폴더 열기">열기</button>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="previewBtn" class="btn">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <span>미리듣기</span>
+        </button>
+        <button id="downloadBtn" class="btn primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+          <span>mp3로 저장</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="card queue">
+      <div class="card-head">
+        <span class="label">다운로드 목록 <span id="queueCount" class="muted"></span></span>
+        <button id="clearDone" class="text-btn">완료 항목 지우기</button>
+      </div>
+      <ul id="queueList" class="queue-list"></ul>
+      <div id="emptyState" class="empty">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+        <p>아직 저장한 음성이 없습니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    교육용 비공식 프로그램입니다. 네이버·파파고와 관련이 없으며, 상업적으로 이용할 수 없습니다. 사용에 따른 책임은 사용자 본인에게 있습니다.
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle">이용 안내 및 면책 고지</h2>
+      <div class="notice">
+        <p>본 프로그램은 <strong>교육 및 학습 목적</strong>으로 만든 <strong>비공식</strong> 프로그램입니다. 네이버(NAVER) 및 파파고(Papago)와 아무런 관련이 없으며, 공식적으로 제공되거나 승인된 프로그램이 아닙니다.</p>
+        <ul>
+          <li>이 프로그램과 이 프로그램으로 받은 음성 파일은 <strong>상업적 목적으로 이용할 수 없습니다.</strong></li>
+          <li>생성된 음성에 대한 권리는 원 제공자에게 있으며, 사용할 때에는 네이버 이용약관을 따라야 합니다.</li>
+          <li>이 프로그램을 사용하여 생기는 <strong>모든 법적 책임은 전적으로 사용자 본인에게 있으며</strong>, 제작자는 어떠한 책임도 지지 않습니다.</li>
+          <li>파파고 서비스가 바뀌면 예고 없이 동작하지 않을 수 있습니다.</li>
+          <li>짧은 시간에 지나치게 많이 요청하면 서비스에 부담을 줄 수 있으니 적정한 범위에서 사용해 주세요.</li>
+        </ul>
+      </div>
+      <label class="agree" id="agreeRow">
+        <input type="checkbox" id="agreeCheck" />
+        위 내용을 읽고 이해했으며 이에 동의합니다.
+      </label>
+      <div class="modal-actions">
+        <button id="modalClose" class="btn primary" disabled>동의하고 시작</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
