@@ -24,7 +24,7 @@ Rust + [Tauri 2](https://tauri.app)로 만들었습니다. (설치 파일 약 1.
 
 [Releases](../../releases/latest) 페이지에서 받을 수 있습니다 (Windows 10/11, 64비트).
 
-- `Papago TTS Downloader_x.y.z_x64-setup.exe`: 설치 파일
+- `Papago.TTS.Downloader_x.y.z_x64-setup.exe`: 설치 파일
 - `papago-tts-downloader.exe`: 설치 없이 바로 실행하는 파일
 
 > 서명되지 않은 프로그램이라 처음 실행할 때 Windows SmartScreen 경고가 뜰 수 있습니다. "추가 정보" → "실행"을 누르면 됩니다.
