@@ -454,7 +454,7 @@ function initDisclaimer(onReady) {
   else showDisclaimer(true);
 }
 
-// ---------- 완료 알림 (오른쪽 아래, 왼쪽→오른쪽으로 들어왔다가 다시 왼쪽으로 사라짐) ----------
+// ---------- 완료 알림 (오른쪽 아래, 오른쪽→왼쪽으로 들어왔다가 다시 오른쪽으로 사라짐) ----------
 let notifyTimer;
 function showNotify(title, body, duration = 4500) {
   const n = els.notify;

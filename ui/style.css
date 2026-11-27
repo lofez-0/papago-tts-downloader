@@ -34,7 +34,7 @@
   }
   *, *::before, *::after { corner-shape: squircle; }
   /* 완전한 원은 원으로 둔다 */
-  .icon-btn, .item.working .item-text::after, .switch .slider::before, .notify-icon { corner-shape: round; }
+  .icon-btn, .item.working .item-text::after, .notify-icon { corner-shape: round; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -424,7 +424,7 @@ select, input[type="text"] {
 .modal-actions { gap: 8px; }
 
 /* ---------- 업데이트 완료 알림 (오른쪽 아래) ----------
-   왼쪽에서 오른쪽으로 들어와 잠시 머문 뒤, 다시 왼쪽으로 가면서 사라진다. */
+   오른쪽에서 왼쪽으로 들어와 잠시 머문 뒤, 다시 오른쪽으로 가면서 사라진다. */
 .notify {
   position: fixed; right: 20px; bottom: 20px; z-index: 30;
   display: flex; align-items: center; gap: 12px;
@@ -439,12 +439,12 @@ select, input[type="text"] {
 .notify.enter { animation: notify-enter .55s cubic-bezier(.22, 1.3, .36, 1) both; }
 .notify.leave { animation: notify-leave .45s cubic-bezier(.55, 0, .7, .3) both; }
 @keyframes notify-enter {
-  from { opacity: 0; transform: translateX(-120px); }
+  from { opacity: 0; transform: translateX(120px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes notify-leave {
   from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(-120px); }
+  to   { opacity: 0; transform: translateX(120px); }
 }
 .notify-icon {
   display: grid; place-items: center;
