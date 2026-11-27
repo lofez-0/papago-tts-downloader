@@ -2,6 +2,9 @@
 //
 //   npm run release -- --notes "바뀐 내용"            빌드 + dist/release 에 파일 준비
 //   npm run release -- --notes "바뀐 내용" --publish  위 작업 후 GitHub 릴리스까지 만들기
+//   npm run release -- --notes-file notes.md --publish   여러 줄 설명은 파일로 넘긴다
+//                                                        (npm을 거치면 줄바꿈 뒤 인자가 잘린다)
+//   --no-build   이미 빌드한 결과물로 파일만 다시 준비한다
 //
 // 결과 (dist/release/):
 //   Papago.TTS.Downloader_<버전>_x64-setup.exe   설치 파일 (자동 업데이트가 내려받는 파일)
@@ -30,7 +33,8 @@ const option = (name) => {
 
 const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 const version = conf.version;
-const notes = option("--notes") ?? "";
+const notesFile = option("--notes-file");
+const notes = (notesFile ? readFileSync(resolve(notesFile), "utf8") : option("--notes") ?? "").trim();
 const tag = `v${version}`;
 
 // 서명 키
@@ -45,8 +49,12 @@ if (!env.TAURI_SIGNING_PRIVATE_KEY) {
 }
 env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
-console.log(`▶ v${version} 빌드 중…`);
-execFileSync("npx tauri build", { cwd: root, env, stdio: "inherit", shell: true });
+if (flag("--no-build")) {
+  console.log(`▶ v${version}: 이미 빌드한 결과물을 씁니다.`);
+} else {
+  console.log(`▶ v${version} 빌드 중…`);
+  execFileSync("npx tauri build", { cwd: root, env, stdio: "inherit", shell: true });
+}
 
 const target = env.CARGO_TARGET_DIR ? resolve(env.CARGO_TARGET_DIR) : join(root, "src-tauri", "target");
 const release = join(target, "release");
@@ -91,7 +99,7 @@ if (flag("--publish")) {
       join(out, "latest.json"),
       "--repo", REPO,
       "--title", tag,
-      "--notes", notes || tag,
+      ...(notesFile ? ["--notes-file", resolve(notesFile)] : ["--notes", notes || tag]),
     ],
     { cwd: root, stdio: "inherit" },
   );

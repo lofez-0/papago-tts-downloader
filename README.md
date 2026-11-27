@@ -104,6 +104,12 @@ npm run build    # 배포용 빌드
    npm run release -- --notes "바뀐 내용" --publish
    ```
 
+   여러 줄로 된 설명은 파일로 넘깁니다 (npm을 거치면 줄바꿈 뒤 인자가 잘립니다).
+
+   ```powershell
+   npm run release -- --notes-file notes.md --publish
+   ```
+
    서명된 설치 파일, 실행 파일, `latest.json`이 `dist/release/`에 만들어지고 릴리스에 첨부됩니다.
    설치된 프로그램은 `releases/latest/download/latest.json`을 보고 새 버전을 찾습니다.
 
